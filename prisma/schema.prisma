@@ -1,0 +1,184 @@
+// ╔═══════════════════════════════════════════════════════════════════════════════╗
+// ║                         PRISMA DATABASE SCHEMA                                 ║
+// ╚═══════════════════════════════════════════════════════════════════════════════╝
+//
+// DATABASE MANAGEMENT COMMANDS:
+// ────────────────────────────────────────────────────────────────────────────────
+//
+// 1️⃣  SETUP LOCAL DATABASE (Run once):
+//     npm run db:push
+//     This creates all tables in your MySQL database
+//
+// 2️⃣  VIEW & MANAGE DATA (Interactive GUI):
+//     npm run db:studio
+//     Opens Prisma Studio at http://localhost:5555
+//
+// 3️⃣  SEED DATABASE (Optional - Add demo data):
+//     npm run db:seed
+//     Runs prisma/seed.js to populate initial admin users & coupons
+//
+// 4️⃣  GENERATE PRISMA CLIENT (Auto-run after schema changes):
+//     npx prisma generate
+//
+// 5️⃣  RESET DATABASE (⚠️  Deletes all data!):
+//     npx prisma db push --force-reset
+//
+// 6️⃣  VIEW DATABASE MIGRATIONS:
+//     npx prisma migrate dev --name your_migration_name
+//
+// CONNECTION STRING FORMAT (for phpMyAdmin):
+// ────────────────────────────────────────────────────────────────────────────────
+// mysql://USERNAME:PASSWORD@HOST:PORT/DATABASE_NAME
+// Example: mysql://root:password@localhost:3306/magic_checkout_db
+//
+// Make sure MySQL service is running before running any commands!
+// ────────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Admin Users ──────────────────────────────────────────────────────────────
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("admin") // "superadmin" | "admin"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ─── Store Config (managed per Shopify shop) ──────────────────────────────────
+model StoreConfig {
+  id              String   @id @default(uuid())
+  shopDomain      String   @unique  // mystore.myshopify.com
+  storeName       String   @default("My Store")
+  logoUrl         String?
+  faviconUrl      String?
+  primaryColor    String   @default("#e91e63")
+  secondaryColor  String   @default("#c2185b")
+
+  // Header settings
+  headerBannerText    String?   // "No COD above Rs. 3000"
+  headerBannerColor   String    @default("#1a1a1a")
+  headerBannerEnabled Boolean   @default(true)
+
+  // Footer settings
+  footerText          String    @default("Powered by Shiprocket")
+  footerLinks         String    @default("[]") // JSON: [{label, url}]
+
+  // Feature flags
+  codEnabled          Boolean   @default(true)
+  codLimit            Float     @default(3000)
+  upiEnabled          Boolean   @default(true)
+  cardEnabled         Boolean   @default(true)
+  netbankingEnabled   Boolean   @default(true)
+  walletEnabled       Boolean   @default(true)
+  emiEnabled          Boolean   @default(true)
+  payLaterEnabled     Boolean   @default(true)
+  prepaidDiscount     Float     @default(50)
+
+  // Razorpay
+  razorpayKeyId       String?
+  razorpayKeySecret   String?
+
+  // Delivery
+  expressDeliveryDays Int       @default(3)
+  quickDeliveryCharge Float     @default(300)
+  quickDeliveryEnabled Boolean  @default(true)
+
+  // Shopify integration
+  shopifyAccessToken  String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  coupons      Coupon[]
+  orders       Order[]
+  sessions     CustomerSession[]
+}
+
+// ─── Coupons ──────────────────────────────────────────────────────────────────
+model Coupon {
+  id          String   @id @default(uuid())
+  shopDomain  String
+  code        String
+  type        String   // "percent" | "flat"
+  value       Float
+  maxDiscount Float
+  minAmount   Float    @default(0)
+  minItems    Int      @default(1)
+  description String
+  isActive    Boolean  @default(true)
+  usageLimit  Int?
+  usageCount  Int      @default(0)
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       StoreConfig @relation(fields: [shopDomain], references: [shopDomain])
+
+  @@unique([shopDomain, code])
+}
+
+// ─── Customer Sessions ────────────────────────────────────────────────────────
+model CustomerSession {
+  id            String   @id @default(uuid())
+  shopDomain    String
+  phone         String?
+  name          String?
+  email         String?
+  address       String?  // JSON
+  cartItems     String?  // JSON: [{id, name, price, quantity, ...}]
+  cartTotal     Float    @default(0)
+  cartItemCount Int      @default(0)
+  visitedAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  ip            String?
+  userAgent     String?
+  ordersCount   Int      @default(0)
+
+  store       StoreConfig @relation(fields: [shopDomain], references: [shopDomain])
+  orders      Order[]
+}
+
+// ─── Orders ───────────────────────────────────────────────────────────────────
+model Order {
+  id              String   @id @default(uuid())
+  shopDomain      String
+  sessionId       String?
+  orderId         String   @unique  // Our internal ID
+  shopifyOrderId  String?           // Shopify order ID after creation
+  razorpayOrderId String?
+  razorpayPaymentId String?
+
+  phone       String
+  email       String?
+  name        String?
+  address     String   // JSON
+
+  items       String   // JSON: [{id, name, price, quantity}]
+  subtotal    Float
+  discount    Float    @default(0)
+  couponCode  String?
+  couponDiscount Float @default(0)
+  deliveryCharge Float @default(0)
+  total       Float
+
+  paymentMethod  String   // upi | card | cod | netbanking | wallet | emi | paylater
+  paymentStatus  String   @default("pending") // pending | paid | failed | refunded
+  orderStatus    String   @default("created")  // created | confirmed | shipped | delivered | cancelled
+
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       StoreConfig     @relation(fields: [shopDomain], references: [shopDomain])
+  session     CustomerSession? @relation(fields: [sessionId], references: [id])
+}
