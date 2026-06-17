@@ -22,7 +22,10 @@ export default function AdminLayout({ children, admin, shopDomain }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const handleLogout = async () => {
-    await fetch('/api/admin/auth?action=logout', { method: 'POST' })
+    await fetch('/api/admin/auth?action=logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
     router.push('/admin/login')
   }
 
